@@ -1,0 +1,322 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum PaymentStatus {
+  Paid
+  PartiallyPaid
+  Overpaid
+  Unpaid
+  Pending
+}
+
+enum MaintenancePriority {
+  Low
+  Medium
+  High
+  Urgent
+}
+
+enum MaintenanceStatus {
+  Open
+  InProgress
+  Completed
+  OnHold
+}
+
+enum MaintenancePaymentStatus {
+  Unpaid
+  PartiallyPaid
+  Paid
+}
+
+enum MileageUnit {
+  km
+  miles
+}
+
+// ─── User & Auth ──────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  settings       UserSettings?
+  ownerInfo      OwnerInfo?
+  properties     Property[]
+  tenants        Tenant[]
+  mileageRates   MileageRate[]
+  mileageLogs    MileageLog[]
+}
+
+model UserSettings {
+  id                String      @id @default(cuid())
+  userId            String      @unique
+  currency          String      @default("₱")
+  propertyTypes     Json        @default("[\"Apartment\",\"House\",\"Cottage\",\"Condo\",\"Townhouse\",\"Commercial\"]")
+  incomeCategories  Json        @default("[\"Rent\",\"Parking\",\"Laundry\",\"Pet Fee\",\"Late Fee\",\"Storage\",\"Other Income\"]")
+  expenseCategories Json        @default("[\"Maintenance\",\"Repairs\",\"Insurance\",\"Property Tax\",\"Utilities\",\"Management Fee\",\"Mortgage\",\"Landscaping\",\"Cleaning\",\"Legal Fees\",\"Advertising\",\"Other Expense\"]")
+  paymentMethods    Json        @default("[\"Bank Transfer\",\"Cash\",\"Credit Card\",\"Check\",\"E-Transfer\",\"PayPal\"]")
+  mileageUnit       MileageUnit @default(miles)
+  sidebarModules    Json?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model OwnerInfo {
+  id      String @id @default(cuid())
+  userId  String @unique
+  name    String @default("")
+  company String @default("")
+  address String @default("")
+  phone   String @default("")
+  email   String @default("")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Property & Units ─────────────────────────────────────────
+
+model Property {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  units     Int      @default(1)
+  type      String
+  address   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unitList         Unit[]
+  leases           Lease[]
+  incomeRecords    IncomeRecord[]
+  expenseRecords   ExpenseRecord[]
+  maintenanceTasks MaintenanceTask[]
+  mileageLogs      MileageLog[]
+
+  @@index([userId])
+}
+
+model Unit {
+  id         String   @id @default(cuid())
+  propertyId String
+  unitNumber String
+  address    String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  property         Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  leases           Lease[]
+  incomeRecords    IncomeRecord[]
+  expenseRecords   ExpenseRecord[]
+  maintenanceTasks MaintenanceTask[]
+
+  @@index([propertyId])
+}
+
+// ─── Tenants & Leases ─────────────────────────────────────────
+
+model Tenant {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  phone     String   @default("")
+  email     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leases        Lease[]
+  incomeRecords IncomeRecord[]
+  notes         TenantNote[]
+  files         TenantFile[]
+
+  @@index([userId])
+}
+
+model TenantNote {
+  id        String   @id @default(cuid())
+  tenantId  String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model TenantFile {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  url       String
+  size      Int      @default(0)
+  type      String   @default("")
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model Lease {
+  id              String   @id @default(cuid())
+  propertyId      String
+  unitId          String
+  tenantId        String
+  unitAddress     String   @default("")
+  leaseStart      String
+  leaseEnd        String
+  monthlyRent     Float
+  deposit         Float    @default(0)
+  isCurrentTenant Boolean  @default(true)
+  isRecurringRent Boolean  @default(true)
+  notes           String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unit     Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([unitId])
+  @@index([tenantId])
+}
+
+// ─── Income ───────────────────────────────────────────────────
+
+model IncomeRecord {
+  id                 String        @id @default(cuid())
+  propertyId         String
+  unitId             String
+  tenantId           String
+  category           String        @default("")
+  rentDueDate        String        @default("")
+  rentAmount         Float         @default(0)
+  additionalIncome   Float         @default(0)
+  totalDue           Float         @default(0)
+  paymentDate        String        @default("")
+  amountPaid         Float         @default(0)
+  outstandingBalance Float         @default(0)
+  paymentStatus      PaymentStatus @default(Pending)
+  delayDays          Int           @default(0)
+  paymentMethod      String        @default("")
+  notes              String        @default("")
+  receiptUrl         String        @default("")
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unit     Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@index([unitId])
+  @@index([tenantId])
+  @@index([paymentStatus])
+}
+
+// ─── Expenses ─────────────────────────────────────────────────
+
+model ExpenseRecord {
+  id                      String   @id @default(cuid())
+  date                    String
+  propertyId              String
+  appliesToEntireBuilding Boolean  @default(false)
+  unitId                  String?
+  category                String   @default("")
+  amount                  Float    @default(0)
+  additionalFees          Float    @default(0)
+  total                   Float    @default(0)
+  notes                   String   @default("")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unit     Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  @@index([propertyId])
+  @@index([unitId])
+}
+
+// ─── Maintenance ──────────────────────────────────────────────
+
+model MaintenanceTask {
+  id                      String                   @id @default(cuid())
+  propertyId              String
+  appliesToEntireBuilding Boolean                   @default(false)
+  unitId                  String?
+  dateReported            String
+  description             String                    @default("")
+  priority                MaintenancePriority       @default(Medium)
+  category                String                    @default("")
+  contractor              String                    @default("")
+  estimatedCost           Float                     @default(0)
+  actualCost              Float                     @default(0)
+  paymentStatus           MaintenancePaymentStatus  @default(Unpaid)
+  completionDate          String                    @default("")
+  status                  MaintenanceStatus         @default(Open)
+  notes                   String                    @default("")
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unit     Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  @@index([propertyId])
+  @@index([unitId])
+  @@index([status])
+}
+
+// ─── Mileage ──────────────────────────────────────────────────
+
+model MileageRate {
+  id        String   @id @default(cuid())
+  userId    String
+  rate      Float
+  startDate String
+  endDate   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model MileageLog {
+  id          String   @id @default(cuid())
+  userId      String
+  propertyId  String
+  date        String
+  distance    Float
+  amount      Float    @default(0)
+  description String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([propertyId])
+}
